@@ -304,12 +304,22 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
         import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 
-        // 1. Firebase 설정 주입 및 인스턴스화 (RULE 3 준수)
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // ==========================================
+        // [중요] 개인 Firebase 설정을 여기에 대입해 주세요!
+        // ==========================================
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+        
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-seating-app';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'computer-auction';
 
         // 2. DOM Elements 선언
         const gridContainer = document.getElementById('gridContainer');
@@ -796,6 +806,7 @@
             }
         }
 
+        // 전역 범위에 바인딩
         window.loginAsStudent = function() {
             const selectedVal = studentSelect.value;
             if (!selectedVal) return showToast('내 이름을 바르게 선택하세요!', '⚠️');
@@ -1191,7 +1202,11 @@
             }
         });
 
-        // 14. 앱 최초 기동 (Auth 실행 및 연동 확보)
+        // 14. 역할 선택 모달 바인딩 활성화 (전역 범위)
+        window.selectRole = selectRole;
+        window.submitBid = submitBid;
+
+        // 15. 앱 최초 기동 (Auth 실행 및 연동 확보)
         initAuth();
     </script>
 </body>
