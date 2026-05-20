@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>정보실 실시간 경매 자리 배치</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: #f1f5f9; }
+        
+        .seat {
+            transition: all 0.25s ease-in-out;
+        }
+        .seat.disabled {
+            background-color: #cbd5e1;
+            color: #64748b;
+            cursor: not-allowed;
+            background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0l20 20M20 0L0 20' stroke='%2394a3b8' stroke-width='1'/%3E%3C/svg%3E");
+        }
+        .seat.active {
+            background-color: #ffffff;
+            border: 2px solid #e2e8f0;
+        }
+        .seat.bidding-active {
+            border-color: #3b82f6;
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.15);
+        }
+        .seat.assigned {
+            background-color: #ffffff;
+            border-color: #22c55e;
+            border-width: 3px;
+            box-shadow: 0 10px 15px -3px rgb(34 197 94 / 0.2);
+            animation: bounce 0.6s cubic-bezier(0.36, 0, 0.66, -0.56) 1;
+        }
+        .seat.auction-won {
+            border-color: #eab308;
+            box-shadow: 0 10px 20px -3px rgb(234 179 8 / 0.4);
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-12px); }
+        }
+
+        .rolling-text {
+            animation: roll-blur 0.08s infinite;
+        }
+        @keyframes roll-blur {
+            0% { filter: blur(0px); transform: scale(1); }
+            50% { filter: blur(1.5px); transform: scale(1.05); }
+            100% { filter: blur(0px); transform: scale(1); }
+        }
+
+        .podium {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            box-shadow: inset 0 2px 4px rgba(255,255,255,0.1);
+        }
+
+        /* 스크롤바 커스텀 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen">
+    <div class="max-w-7xl mx-auto">
+        <!-- 상단 헤더 및 실시간 지표 -->
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+            <div class="text-center md:text-left">
+                <h1 class="text-3xl font-extrabold text-slate-900 flex items-center justify-center md:justify-start gap-2">
+                    🪙 실시간 정보실 경매 자리 배치
+                </h1>
+                <p class="text-slate-500 font-medium">실시간 데이터 연동으로 전 학생이 함께하는 경매 배치 시스템</p>
+            </div>
+            
+            <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200">
+                <div class="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+                    <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                    <span id="connectionText">실시간 연결 중</span>
+                </div>
+                <div class="h-4 w-px bg-slate-200"></div>
+                <div id="roleBadge" class="text-xs font-extrabold text-blue-600">로딩 중...</div>
+                <button id="changeRoleBtn" class="text-[10px] bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg text-slate-500 transition-all font-bold">역할 변경</button>
+            </div>
+        </header>
+
+        <!-- 역할 선택 모달 (최초 진입 시) -->
+        <div id="roleModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-slate-100 text-center space-y-6">
+                <div class="space-y-2">
+                    <span class="text-4xl">🖥️</span>
+                    <h2 class="text-2xl font-black text-slate-900">접속 모드 선택</h2>
+                    <p class="text-slate-500 text-sm">정보실 시스템을 이용할 역할을 선택해 주세요.</p>
+                </div>
+                <div class="grid grid-cols-1 gap-3">
+                    <button onclick="selectRole('TEACHER')" class="py-4 bg-gradient-to-r from-slate-800 to-slate-700 hover:from-slate-900 hover:to-slate-800 text-white font-bold rounded-2xl shadow-lg transition-all active:scale-95 text-lg">
+                        👨‍🏫 선생님 화면 (프로젝터용)
+                    </button>
+                    <button onclick="selectRole('STUDENT')" class="py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-lg transition-all active:scale-95 text-lg">
+                        👥 학생 화면 (개인 기기용)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 학생 이름 매핑 모달 (학생 모드 최초 진입 시) -->
+        <div id="studentLoginModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+            <div class="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-slate-100 text-center space-y-5">
+                <span class="text-4xl">🙋‍♂️</span>
+                <h2 class="text-2xl font-black text-slate-900">내 이름 찾기</h2>
+                <p class="text-slate-500 text-sm">선생님이 등록한 명단에서 본인의 이름을 선택하세요.</p>
+                
+                <div class="space-y-3 text-left">
+                    <label class="text-xs font-bold text-slate-400">학생 이름 선택</label>
+                    <select id="studentSelect" class="w-full p-3.5 border border-slate-200 rounded-2xl bg-slate-50 font-bold focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500">
+                        <!-- 동적 생성 -->
+                    </select>
+                </div>
+                
+                <button onclick="loginAsStudent()" class="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl transition-all shadow-lg shadow-blue-100 active:scale-95">
+                    경매 참가하기 🪙
+                </button>
+            </div>
+        </div>
+
+        <!-- 실시간 진행 단계 표시기 -->
+        <div class="flex justify-center mb-8">
+            <div class="flex items-center gap-4 bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-200">
+                <span id="step1" class="font-bold text-blue-600 transition-all text-sm md:text-base">1. 정보실 설정</span>
+                <span class="text-slate-300">➔</span>
+                <span id="step2" class="font-bold text-slate-400 transition-all text-sm md:text-base">2. 실시간 투자</span>
+                <span class="text-slate-300">➔</span>
+                <span id="step3" class="font-bold text-slate-400 transition-all text-sm md:text-base">3. 개표 방송</span>
+            </div>
+        </div>
+
+        <!-- 메인 인터페이스 그리드 -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            <!-- 왼쪽 컨트롤 패널 (5열) -->
+            <div class="lg:col-span-5 space-y-6 no-capture">
+                
+                <!-- [선생님 전용] 1단계: 셋업 패널 -->
+                <div id="panelSetup" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4 hidden">
+                    <h2 class="text-xl font-bold flex items-center gap-2 text-slate-800">
+                        👨‍🏫 1단계: 좌석 및 명단 설정
+                    </h2>
+                    <p class="text-sm text-slate-400">제외할 좌석을 배치도에서 클릭하여 회색(X)으로 처리하세요. 그 후 학생 명단을 등록해 경매를 개시합니다.</p>
+                    <textarea id="nameInput" rows="7" 
+                        class="w-full p-4 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 focus:outline-none text-sm transition-all resize-none"
+                        placeholder="이름을 쉼표(,)나 줄바꿈으로 구분하여 입력..."></textarea>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-500">참여 학생 수: <strong id="studentCount" class="text-blue-600">0</strong>명</span>
+                        <button id="startAuctionBtn" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all shadow-md active:scale-95">
+                            실시간 경매 개시 🪙
+                        </button>
+                    </div>
+                </div>
+
+                <!-- [학생 전용] 학생 정보 헤더 보드 -->
+                <div id="studentHeaderBoard" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4 hidden">
+                    <div class="flex justify-between items-center">
+                        <div class="flex flex-col">
+                            <span class="text-xs font-bold text-slate-400">참가 학생</span>
+                            <span id="myStudentName" class="text-2xl font-black text-slate-800">이름 로딩중</span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs font-bold text-slate-400">남은 투자금</span>
+                            <div class="text-2xl font-black text-blue-600" id="myRemainingCoins">🪙 10개</div>
+                        </div>
+                    </div>
+                    <div class="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                        <div id="myCoinBar" class="bg-blue-600 h-full transition-all" style="width: 0%"></div>
+                    </div>
+                    
+                    <!-- 학생용 제출 버튼 -->
+                    <button id="studentSubmitBtn" class="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl transition-all shadow-md active:scale-95 text-sm flex items-center justify-center gap-1.5">
+                        <span>제출 완료하기 🚀</span>
+                    </button>
+                    <p id="studentSubmitStatus" class="text-xs text-center font-bold text-green-600 hidden">
+                        ✓ 제출 완료되었습니다. 선생님의 개표 방송을 기다려주세요!
+                    </p>
+                    <p class="text-[11px] text-slate-400 text-center leading-relaxed">안내: 배치표의 각 좌석에 있는 + / - 버튼으로 10개의 코인을 자유롭게 투자할 수 있습니다.</p>
+                </div>
+
+                <!-- [공용/실시간] 2단계: 베팅 현황 모니터링 -->
+                <div id="panelBidding" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4 hidden">
+                    <div class="flex justify-between items-center">
+                        <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                            ⚡ 실시간 투자 레이스
+                        </h2>
+                        <span id="teacherControlBadge" class="text-xs bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full font-bold">진행 중</span>
+                    </div>
+                    
+                    <p class="text-sm text-slate-500">실시간으로 연동되는 반 학생들의 베팅 참가 현황입니다. (어디에 베팅했는지는 극비입니다!)</p>
+                    
+                    <div class="border border-slate-200 rounded-2xl overflow-hidden">
+                        <div class="bg-slate-50 px-4 py-2 border-b border-slate-200 text-xs font-bold text-slate-500">실시간 코인 사용 목록</div>
+                        <div id="biddingStudentList" class="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                            <!-- 실시간 리스트 -->
+                        </div>
+                    </div>
+
+                    <!-- 선생님만 끝낼 수 있음 -->
+                    <button id="finishBiddingBtn" class="w-full py-4 bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg rounded-2xl transition-all shadow-lg shadow-amber-100 active:scale-95 flex items-center justify-center gap-2 hidden">
+                        <span>📢 투자 종료 & 개표 모드 전환</span>
+                    </button>
+                </div>
+
+                <!-- [공용/실시간] 3단계: 방송 정산 및 현황판 -->
+                <div id="panelReveal" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4 hidden">
+                    <h2 class="text-xl font-bold text-slate-800">📊 경매 방송 현황</h2>
+                    
+                    <div class="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 text-sm text-slate-600">
+                        <div class="flex justify-between"><span>총 활성 좌석</span><span id="statActiveSeats" class="font-bold">0석</span></div>
+                        <div class="flex justify-between"><span>총 배정 학생</span><span id="statTotalStudents" class="font-bold">0명</span></div>
+                        <div class="flex justify-between text-amber-600 font-bold"><span>경매 입찰 발생지</span><span id="statBiddedSeats">0석</span></div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <!-- 선생님 전용 제어 -->
+                        <button id="revealNextBtn" class="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-2xl font-bold text-lg transition-all shadow-lg shadow-purple-200 flex items-center justify-center gap-2 hidden">
+                            <span>✨ 다음 좌석 개표하기</span>
+                        </button>
+                        <button id="revealAllBtn" class="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-sm transition-all hidden">
+                            ⚡ 한번에 고속 정산하기
+                        </button>
+                    </div>
+
+                    <!-- 실시간 개표 라이브 방송용 전광판 -->
+                    <div id="liveStatusBoard" class="border border-slate-200 rounded-2xl p-4 bg-slate-900 text-white min-h-[120px] flex flex-col justify-center items-center text-center">
+                        <div class="text-slate-400 text-xs uppercase tracking-wider mb-2">LIVE BROADCAST</div>
+                        <div id="liveMessage" class="text-lg font-bold">대기 중...</div>
+                        <div id="liveSubMessage" class="text-xs text-slate-400 mt-1"></div>
+                    </div>
+                </div>
+
+                <!-- [공용/선생님 전용 액션 바] -->
+                <div id="teacherActionCard" class="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex gap-2 hidden">
+                    <button id="resetBtn" class="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-semibold transition-all hidden">
+                        🔄 전체 초기화 (선생님)
+                    </button>
+                    <button id="captureBtn" class="flex-1 py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-semibold transition-all flex items-center justify-center gap-1">
+                        📸 이미지 저장
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- 오른쪽: 자리 배치도 영역 (7열) -->
+            <div class="lg:col-span-7" id="captureArea">
+                <div class="podium p-5 rounded-t-[2rem] flex justify-between items-center px-10">
+                    <span class="text-emerald-400 font-bold text-lg">🚪 문</span>
+                    <span class="text-slate-400 font-black tracking-[0.5em] text-sm uppercase italic">Screen</span>
+                    <span class="text-blue-300 font-bold text-lg">👨‍🏫 선생님 자리</span>
+                </div>
+                <div class="bg-white p-6 md:p-8 rounded-b-[2rem] shadow-xl border border-slate-200">
+                    <div id="gridContainer" class="grid grid-cols-6 gap-3">
+                        <!-- 6x6 그리드가 JS로 생성됨 -->
+                    </div>
+                </div>
+                
+                <div class="mt-6 flex flex-wrap justify-center gap-6 text-xs font-semibold text-slate-500 no-capture">
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 bg-white border-2 border-slate-200 rounded"></div> 
+                        <span>일반 좌석</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 bg-slate-300 rounded"></div> 
+                        <span>제외(X) / 복도</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 bg-yellow-100 border-2 border-yellow-500 rounded"></div> 
+                        <span>👑 경매 낙찰 좌석</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 bg-emerald-100 border-2 border-emerald-500 rounded"></div> 
+                        <span>🎲 일반 배정 좌석</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 토스트 알림 -->
+    <div id="statusToast" class="fixed top-10 left-1/2 -translate-x-1/2 px-8 py-4 bg-slate-900 text-white rounded-2xl shadow-2xl opacity-0 transition-all duration-300 z-50 flex items-center gap-3 pointer-events-none">
+        <span id="toastIcon">📢</span>
+        <span id="toastMsg">메시지</span>
+    </div>
+
+    <!-- Firebase SDK 로드 -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+        // 1. Firebase 설정 주입 및 인스턴스화 (RULE 3 준수)
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-seating-app';
+
+        // 2. DOM Elements 선언
+        const gridContainer = document.getElementById('gridContainer');
+        const nameInput = document.getElementById('nameInput');
+        const studentCountEl = document.getElementById('studentCount');
+        const startAuctionBtn = document.getElementById('startAuctionBtn');
+        const finishBiddingBtn = document.getElementById('finishBiddingBtn');
+        const biddingStudentList = document.getElementById('biddingStudentList');
+        const panelSetup = document.getElementById('panelSetup');
+        const panelBidding = document.getElementById('panelBidding');
+        const panelReveal = document.getElementById('panelReveal');
+        const studentHeaderBoard = document.getElementById('studentHeaderBoard');
+        const myStudentName = document.getElementById('myStudentName');
+        const myRemainingCoins = document.getElementById('myRemainingCoins');
+        const myCoinBar = document.getElementById('myCoinBar');
+        const studentSubmitBtn = document.getElementById('studentSubmitBtn');
+        const studentSubmitStatus = document.getElementById('studentSubmitStatus');
+        const studentSelect = document.getElementById('studentSelect');
+        const studentLoginModal = document.getElementById('studentLoginModal');
+        const roleModal = document.getElementById('roleModal');
+        const changeRoleBtn = document.getElementById('changeRoleBtn');
+        const roleBadge = document.getElementById('roleBadge');
+        const connectionText = document.getElementById('connectionText');
+        const teacherActionCard = document.getElementById('teacherActionCard');
+
+        const step1 = document.getElementById('step1');
+        const step2 = document.getElementById('step2');
+        const step3 = document.getElementById('step3');
+        
+        const statActiveSeats = document.getElementById('statActiveSeats');
+        const statTotalStudents = document.getElementById('statTotalStudents');
+        const statBiddedSeats = document.getElementById('statBiddedSeats');
+        
+        const revealNextBtn = document.getElementById('revealNextBtn');
+        const revealAllBtn = document.getElementById('revealAllBtn');
+        const liveMessage = document.getElementById('liveMessage');
+        const liveSubMessage = document.getElementById('liveSubMessage');
+        
+        const resetBtn = document.getElementById('resetBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const statusToast = document.getElementById('statusToast');
+
+        // 3. 글로벌 상태값
+        const ROWS = 6;
+        const COLS = 6;
+        let userRole = null; // 'TEACHER' or 'STUDENT'
+        let fbUser = null;
+        let activeStudentId = null; // STUDENT 역할 시 현재 로그인한 학생 ID
+
+        // 실시간 연동 상태 데이터
+        let sessionState = {
+            phase: 'SETUP',
+            activeRevealIndex: 0,
+            assignedSeats: {},
+            seatsToResolve: [],
+            currentWinnerFlash: null, // 동적 애니메이션용 실시간 타겟
+            seatsConfig: [] // { id, active, label }
+        };
+        let studentList = []; // 실시간 학생 입찰 상태 수집 목록
+
+        // 사운드
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSfx(freq, duration, type = 'sine', volume = 0.1) {
+            try {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {}
+        }
+
+        // 토스트 알림 함수 정의 (모듈 내부에 추가)
+        function showToast(msg, icon = '📢') {
+            document.getElementById('toastMsg').innerText = msg;
+            document.getElementById('toastIcon').innerText = icon;
+            statusToast.style.opacity = '1';
+            statusToast.style.transform = 'translate(-50%, 20px)';
+            setTimeout(() => {
+                statusToast.style.opacity = '0';
+                statusToast.style.transform = 'translate(-50%, 0)';
+            }, 3000);
+        }
+
+        // Fisher-Yates shuffle
+        function shuffle(array) {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex != 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        // 기본 6x6 자리 배치 규칙
+        const seatMap = [
+            ["1", "3", "X", "X", "5", "7"],
+            ["2", "4", "X", "X", "6", "8"],
+            ["9", "11", "X", "X", "13", "15"],
+            ["10", "12", "X", "X", "14", "16"],
+            ["17", "19", "21", "23", "25", "27"],
+            ["18", "20", "22", "24", "26", "28"]
+        ];
+
+        // 4. Firestore Path 정의 (RULE 1 준수)
+        // 짝수 세그먼트를 완벽히 지키기 위해 session_config를 public/data/configs/session 구조로 6개 구성합니다.
+        const getSessionDocRef = () => doc(db, 'artifacts', appId, 'public', 'data', 'configs', 'session');
+        const getStudentCollectionRef = () => collection(db, 'artifacts', appId, 'public', 'data', 'students');
+        const getStudentDocRef = (sid) => doc(db, 'artifacts', appId, 'public', 'data', 'students', String(sid));
+
+        // 5. 로그인 및 Auth 초기화 (RULE 3 준수)
+        const initAuth = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                fbUser = user;
+                connectionText.innerText = "실시간 서버 연결 완료";
+                connectionText.parentElement.querySelector('span').classList.replace('bg-amber-500', 'bg-emerald-500');
+                
+                // 앱 설정 복원 또는 세팅
+                const savedRole = localStorage.getItem(`${appId}_role`);
+                if (savedRole) {
+                    selectRole(savedRole);
+                } else {
+                    roleModal.classList.remove('hidden');
+                }
+            } else {
+                connectionText.innerText = "서버 연결 해제됨";
+                connectionText.parentElement.querySelector('span').classList.replace('bg-emerald-500', 'bg-amber-500');
+            }
+        });
+
+        // 역할 선택 핸들러
+        window.selectRole = function(role) {
+            userRole = role;
+            localStorage.setItem(`${appId}_role`, role);
+            roleModal.classList.add('hidden');
+            
+            if (role === 'TEACHER') {
+                roleBadge.innerText = "👨‍🏫 선생님 모드";
+                resetBtn.classList.remove('hidden');
+                teacherActionCard.classList.remove('hidden');
+                studentHeaderBoard.classList.add('hidden');
+                studentLoginModal.classList.add('hidden');
+            } else {
+                roleBadge.innerText = "👥 학생 모드";
+                resetBtn.classList.add('hidden');
+                teacherActionCard.classList.add('hidden'); // 학생 모드 시 이미지 저장 탭 전체 비활성화
+            }
+            
+            // 실시간 구독 활성화
+            startRealtimeSync();
+        };
+
+        changeRoleBtn.addEventListener('click', () => {
+            localStorage.removeItem(`${appId}_role`);
+            localStorage.removeItem(`${appId}_studentId`);
+            roleModal.classList.remove('hidden');
+            location.reload();
+        });
+
+        // 6. 실시간 동기화 바인딩
+        let unsubscribeSession = null;
+        let unsubscribeStudents = null;
+
+        function startRealtimeSync() {
+            if (!fbUser) return; // Guard (RULE 3)
+
+            // 기존 구독이 있으면 클리어
+            if (unsubscribeSession) unsubscribeSession();
+            if (unsubscribeStudents) unsubscribeStudents();
+
+            // 6-1. 세션 동기화 (onSnapshot - Error Callback 포함)
+            unsubscribeSession = onSnapshot(getSessionDocRef(), (snapshot) => {
+                if (snapshot.exists()) {
+                    const data = snapshot.data();
+                    const prevPhase = sessionState.phase;
+                    const prevRevealIdx = sessionState.activeRevealIndex;
+                    
+                    sessionState = data;
+                    
+                    applyPhaseUI();
+                    renderGridBySync();
+
+                    // 신규 개표 발생 시 연출 트리거
+                    if (sessionState.phase === 'REVEAL' && sessionState.activeRevealIndex !== prevRevealIdx) {
+                        triggerRevealSfxAnimation();
+                    }
+                } else {
+                    // 세션 최초 생성 (선생님만 활성화 권한 보유)
+                    if (userRole === 'TEACHER') {
+                        createInitialSession();
+                    } else {
+                        liveMessage.innerText = "선생님이 세션을 열어줄 때까지 기다리는 중...";
+                    }
+                }
+            }, (error) => {
+                console.error("Firestore Session sync error:", error);
+            });
+
+            // 6-2. 학생 리스트 동기화 (onSnapshot - Error Callback 포함)
+            unsubscribeStudents = onSnapshot(getStudentCollectionRef(), (snapshot) => {
+                studentList = [];
+                snapshot.forEach(doc => {
+                    studentList.push(doc.data());
+                });
+                
+                // 학생 베팅 레이스 리실시간 리렌더링
+                updateBiddingStudentRaceList();
+                
+                // 학생 로그인의 경우 내 정보 패널 리셋
+                if (userRole === 'STUDENT') {
+                    handleStudentLoginCheck();
+                }
+
+                // [핵심 버그 수정]: 학생들의 입찰 정보가 변경될 때마다 화면 그리드(배치표)를 실시간으로 리렌더링하여 숫자를 동기화시킵니다!
+                renderGridBySync();
+            }, (error) => {
+                console.error("Firestore Students sync error:", error);
+            });
+        }
+
+        // 초기 세션 정보 Firestore 등록
+        async function createInitialSession() {
+            const initialSeats = [];
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const customNum = seatMap[r][c];
+                    initialSeats.push({
+                        id: r * COLS + c,
+                        active: customNum !== "X",
+                        label: customNum
+                    });
+                }
+            }
+
+            const initialData = {
+                phase: 'SETUP',
+                activeRevealIndex: 0,
+                assignedSeats: {},
+                seatsToResolve: [],
+                currentWinnerFlash: null,
+                seatsConfig: initialSeats
+            };
+
+            await setDoc(getSessionDocRef(), initialData);
+        }
+
+        // 페이즈 변경에 따른 가변 UI 분기
+        function applyPhaseUI() {
+            const p = sessionState.phase;
+
+            // 공통 단계 인디케이터 컬러 변경
+            step1.className = p === 'SETUP' ? "text-blue-600 font-extrabold scale-105" : "text-slate-400 font-medium";
+            step2.className = p === 'BIDDING' ? "text-amber-500 font-extrabold scale-105" : "text-slate-400 font-medium";
+            step3.className = (p === 'REVEAL' || p === 'COMPLETE') ? "text-purple-600 font-extrabold scale-105" : "text-slate-400 font-medium";
+
+            // 보드 패널 노출 분기
+            panelSetup.classList.add('hidden');
+            panelBidding.classList.add('hidden');
+            panelReveal.classList.add('hidden');
+
+            if (p === 'SETUP') {
+                if (userRole === 'TEACHER') {
+                    panelSetup.classList.remove('hidden');
+                    nameInput.disabled = false;
+                } else {
+                    liveMessage.innerText = "선생님이 자리 및 학생 설정을 진행 중입니다... 잠시만 기다려주세요.";
+                    liveSubMessage.innerText = "🚪 준비가 끝나면 경매가 자동 개시됩니다.";
+                    panelReveal.classList.remove('hidden');
+                }
+            } else if (p === 'BIDDING') {
+                panelBidding.classList.remove('hidden');
+                if (userRole === 'TEACHER') {
+                    finishBiddingBtn.classList.remove('hidden');
+                } else {
+                    finishBiddingBtn.classList.add('hidden');
+                }
+            } else {
+                panelReveal.classList.remove('hidden');
+                if (userRole === 'TEACHER') {
+                    revealNextBtn.classList.remove('hidden');
+                    revealAllBtn.classList.remove('hidden');
+                    
+                    if (p === 'COMPLETE') {
+                        revealNextBtn.disabled = true;
+                        revealAllBtn.classList.add('hidden');
+                    } else {
+                        revealNextBtn.disabled = false;
+                        revealAllBtn.classList.remove('hidden');
+                    }
+                } else {
+                    revealNextBtn.classList.add('hidden');
+                    revealAllBtn.classList.add('hidden');
+                }
+
+                // 현황 전광판 업데이트
+                if (p === 'REVEAL') {
+                    liveMessage.innerText = "두근두근 실시간 개표 라이브 방송 중! 📡";
+                    liveSubMessage.innerText = "선생님이 발표하는 자리의 결과를 지켜보세요.";
+                } else if (p === 'COMPLETE') {
+                    liveMessage.innerText = "🏆 정보실 자리 배치 완료!";
+                    liveSubMessage.innerText = "최종 결과는 배치표에서 확인할 수 있습니다.";
+                }
+
+                statActiveSeats.innerText = `${sessionState.seatsConfig.filter(s => s.active).length}석`;
+                statTotalStudents.innerText = `${studentList.length}명`;
+                statBiddedSeats.innerText = `${sessionState.seatsToResolve.length}석`;
+            }
+        }
+
+        // 7. 그리드 그리기 (실시간 상태 동기화 기반)
+        function renderGridBySync() {
+            gridContainer.innerHTML = '';
+            
+            sessionState.seatsConfig.forEach(seatObj => {
+                const seatEl = document.createElement('div');
+                seatEl.id = `seat-${seatObj.id}`;
+                
+                const isAssigned = sessionState.assignedSeats[seatObj.id] !== undefined;
+                
+                // 기본 스타일 적용
+                seatEl.className = `seat ${seatObj.active ? 'active' : 'disabled'} h-24 flex flex-col items-center justify-between rounded-2xl border-2 text-xs font-bold shadow-sm overflow-hidden text-center relative p-2`;
+                
+                // 1단계 셋업 패널에서의 클릭 이벤트 (선생님 한정)
+                if (sessionState.phase === 'SETUP' && userRole === 'TEACHER' && seatObj.label !== "X") {
+                    seatEl.addEventListener('click', () => toggleSeatActive(seatObj.id));
+                }
+
+                const labelDisplay = seatObj.active ? `#${seatObj.label}` : '';
+                let innerHTML = `<span class="absolute top-1.5 left-2.5 text-[10px] ${seatObj.active ? 'text-slate-300' : 'text-slate-500'} font-extrabold">${labelDisplay}</span>`;
+
+                if (!seatObj.active) {
+                    innerHTML += `<span class="name text-slate-400 text-sm mt-6">X</span>`;
+                } else {
+                    if (sessionState.phase === 'SETUP') {
+                        innerHTML += `<span class="name text-slate-800 text-base font-extrabold mt-6">빈자리</span>`;
+                    } else if (sessionState.phase === 'BIDDING') {
+                        // 학생 모드 입찰 인터페이스
+                        if (userRole === 'STUDENT' && activeStudentId) {
+                            const studentData = studentList.find(s => s.id === activeStudentId);
+                            const currentBid = (studentData && studentData.bids && studentData.bids[String(seatObj.id)]) ? studentData.bids[String(seatObj.id)] : 0;
+                            const isSubmitted = studentData && studentData.isSubmitted;
+                            
+                            if (isSubmitted) {
+                                // 제출 완료된 상태: 조작 버튼 미출력
+                                innerHTML += `
+                                    <div class="flex flex-col items-center justify-center h-full w-full pt-1">
+                                        <span class="text-[10px] text-slate-400">내 투자 코인</span>
+                                        <span class="text-xl font-extrabold text-slate-500">🪙 ${currentBid}</span>
+                                    </div>
+                                `;
+                            } else {
+                                // 제출 전 상태: 플러스/마이너스 투자 기능 활성화
+                                innerHTML += `
+                                    <div class="flex flex-col items-center mt-3">
+                                        <span class="text-[10px] text-slate-400">내 투자 코인</span>
+                                        <span class="text-lg font-extrabold text-blue-600">🪙 ${currentBid}</span>
+                                    </div>
+                                    <div class="flex gap-2 w-full justify-center no-capture font-bold">
+                                        <button onclick="submitBid(${seatObj.id}, -1)" class="w-6.5 h-6.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full flex items-center justify-center border border-slate-200 shadow-sm transition-all text-xs font-bold">-</button>
+                                        <button onclick="submitBid(${seatObj.id}, 1)" class="w-6.5 h-6.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-full flex items-center justify-center border border-blue-200 shadow-sm transition-all text-xs font-bold">+</button>
+                                    </div>
+                                `;
+                            }
+                            seatEl.classList.add('bidding-active');
+                        } else {
+                            // 선생님 혹은 로그인 안한 학생: 전체 입찰 상황 열기 (익명 히트맵 느낌으로 총 투자 코인 합산만 출력하여 공정성 유지)
+                            let totalBidCoinsOnSeat = 0;
+                            studentList.forEach(stud => {
+                                if (stud.bids && stud.bids[String(seatObj.id)]) {
+                                    totalBidCoinsOnSeat += stud.bids[String(seatObj.id)];
+                                }
+                            });
+
+                            innerHTML += `
+                                <div class="flex flex-col items-center justify-center h-full w-full pt-2">
+                                    <span class="text-[10px] text-slate-400">누적 경쟁 코인</span>
+                                    <span class="text-xl font-black ${totalBidCoinsOnSeat > 0 ? 'text-amber-500' : 'text-slate-300'}">🪙 ${totalBidCoinsOnSeat}</span>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        // 개표 결과 및 완료 모드
+                        if (isAssigned) {
+                            const winnerId = sessionState.assignedSeats[seatObj.id];
+                            const student = studentList.find(s => s.id === winnerId);
+                            const studentName = student ? student.name : "미확인";
+                            
+                            // 이 자리에 들어왔던 최고 입찰 코인 계산
+                            let winningBidCount = 0;
+                            studentList.forEach(s => {
+                                if (s.id === winnerId && s.bids && s.bids[String(seatObj.id)]) {
+                                    winningBidCount = s.bids[String(seatObj.id)];
+                                }
+                            });
+
+                            const isAuctionResult = winningBidCount > 0;
+
+                            innerHTML = `
+                                <span class="absolute top-1.5 left-2.5 text-[10px] text-slate-300 font-extrabold">#${seatObj.label}</span>
+                                <div class="flex flex-col items-center justify-center h-full w-full">
+                                    <span class="text-slate-900 text-base font-extrabold break-all">${studentName}</span>
+                                    ${isAuctionResult ? `<span class="text-[10px] font-bold text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded-full mt-1 border border-amber-200">👑 낙찰 (🪙 ${winningBidCount})</span>` : '<span class="text-[10px] font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded-full mt-1 border border-emerald-200">🎲 일반배정</span>'}
+                                </div>
+                            `;
+                            seatEl.classList.add('assigned');
+                            if (isAuctionResult) seatEl.classList.add('auction-won');
+                        } else {
+                            innerHTML += `<span class="name text-slate-300 text-sm mt-6">빈자리</span>`;
+                        }
+                    }
+                }
+
+                seatEl.innerHTML = innerHTML;
+                gridContainer.appendChild(seatEl);
+            });
+        }
+
+        // 선생님용 셋업 좌석 상태 업데이트
+        async function toggleSeatActive(index) {
+            if (userRole !== 'TEACHER' || sessionState.phase !== 'SETUP') return;
+            
+            const updatedSeats = [...sessionState.seatsConfig];
+            updatedSeats[index].active = !updatedSeats[index].active;
+            
+            playSfx(updatedSeats[index].active ? 400 : 150, 0.1, updatedSeats[index].active ? 'sine' : 'triangle');
+            await updateDoc(getSessionDocRef(), { seatsConfig: updatedSeats });
+        }
+
+        // 8. 학생 로그인 세션 매핑
+        function handleStudentLoginCheck() {
+            activeStudentId = localStorage.getItem(`${appId}_studentId`);
+            
+            if (sessionState.phase === 'SETUP') {
+                studentLoginModal.classList.add('hidden');
+                studentHeaderBoard.classList.add('hidden');
+                return;
+            }
+
+            if (!activeStudentId) {
+                // 로그인 진행
+                studentSelect.innerHTML = '<option value="">선택하세요</option>';
+                studentList.forEach(student => {
+                    studentSelect.innerHTML += `<option value="${student.id}">${student.name}</option>`;
+                });
+                studentLoginModal.classList.remove('hidden');
+                studentHeaderBoard.classList.add('hidden');
+            } else {
+                studentLoginModal.classList.add('hidden');
+                studentHeaderBoard.classList.remove('hidden');
+                
+                const curStudent = studentList.find(s => s.id === activeStudentId);
+                if (curStudent) {
+                    myStudentName.innerText = curStudent.name;
+                    const remaining = 10 - curStudent.coinsUsed;
+                    myRemainingCoins.innerText = `🪙 ${remaining}개`;
+                    myCoinBar.style.width = `${(curStudent.coinsUsed / 10) * 100}%`;
+
+                    // 제출 상태에 따른 버튼 바인딩
+                    if (curStudent.isSubmitted) {
+                        studentSubmitBtn.innerHTML = "<span>투자 수정하기 ✏️</span>";
+                        studentSubmitBtn.className = "w-full py-3.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-2xl transition-all text-sm flex items-center justify-center gap-1.5";
+                        studentSubmitStatus.classList.remove('hidden');
+                    } else {
+                        studentSubmitBtn.innerHTML = "<span>제출 완료하기 🚀</span>";
+                        studentSubmitBtn.className = "w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl transition-all shadow-md active:scale-95 text-sm flex items-center justify-center gap-1.5";
+                        studentSubmitStatus.classList.add('hidden');
+                    }
+                }
+            }
+        }
+
+        window.loginAsStudent = function() {
+            const selectedVal = studentSelect.value;
+            if (!selectedVal) return showToast('내 이름을 바르게 선택하세요!', '⚠️');
+            
+            localStorage.setItem(`${appId}_studentId`, selectedVal);
+            activeStudentId = selectedVal;
+            studentLoginModal.classList.add('hidden');
+            showToast('실시간 입찰 경매에 등록되었습니다!', '🪙');
+            handleStudentLoginCheck();
+            renderGridBySync();
+        };
+
+        // 9. 실시간 코인 입찰 처리 (학생)
+        window.submitBid = async function(seatId, delta) {
+            if (sessionState.phase !== 'BIDDING' || !activeStudentId) return;
+
+            const student = studentList.find(s => s.id === activeStudentId);
+            if (!student || student.isSubmitted) return; // 이미 제출된 경우 조작 차단
+
+            const currentBid = (student.bids && student.bids[String(seatId)]) ? student.bids[String(seatId)] : 0;
+            const updatedBids = student.bids ? { ...student.bids } : {};
+
+            if (delta === 1) {
+                if (student.coinsUsed >= 10) {
+                    return showToast('더 이상 배정할 코인이 없습니다! (최대 10개)', '⚠️');
+                }
+                updatedBids[String(seatId)] = currentBid + 1;
+                const nextUsed = student.coinsUsed + 1;
+                
+                await updateDoc(getStudentDocRef(activeStudentId), {
+                    bids: updatedBids,
+                    coinsUsed: nextUsed
+                });
+                playSfx(500 + (nextUsed * 40), 0.08, 'sine', 0.15);
+            } else {
+                if (currentBid <= 0) return;
+                updatedBids[String(seatId)] = currentBid - 1;
+                const nextUsed = student.coinsUsed - 1;
+
+                // 0개인 경우 불필요한 필드 누적 방지 위해 해당 값 세팅
+                updatedBids[String(seatId)] = currentBid - 1;
+                
+                await updateDoc(getStudentDocRef(activeStudentId), {
+                    bids: updatedBids,
+                    coinsUsed: nextUsed
+                });
+                playSfx(300 + (nextUsed * 40), 0.08, 'sine', 0.1);
+            }
+        };
+
+        // 학생용 제출 완료 / 취소 버튼 리스너 바인딩
+        studentSubmitBtn.addEventListener('click', async () => {
+            if (!activeStudentId) return;
+
+            const student = studentList.find(s => s.id === activeStudentId);
+            if (!student) return;
+
+            if (student.isSubmitted) {
+                // 제출 취소(수정 모드 진입)
+                await updateDoc(getStudentDocRef(activeStudentId), {
+                    isSubmitted: false
+                });
+                showToast('제출을 철회했습니다. 자유롭게 자리를 수정하세요!', '✏️');
+            } else {
+                // 투자 마감 제출 (10개를 모두 쓰지 않아도 제출이 가능하도록 조건 변경)
+                if (student.coinsUsed <= 0) {
+                    showToast('최소한 1개 이상의 코인을 어딘가에 할당해야 제출할 수 있습니다!', '⚠️');
+                    return;
+                }
+                await updateDoc(getStudentDocRef(activeStudentId), {
+                    isSubmitted: true
+                });
+                showToast('투자가 완결되었습니다! 선생님의 방송을 기다려주세요.', '🎉');
+            }
+            renderGridBySync();
+        });
+
+        // 10. 입찰 레이스 실시간 전황 모니터 리스트 출력
+        function updateBiddingStudentRaceList() {
+            if (sessionState.phase === 'SETUP') return;
+            biddingStudentList.innerHTML = '';
+            
+            studentList.forEach(student => {
+                const isCompleted = student.isSubmitted || student.coinsUsed === 10;
+                const progressPercent = (student.coinsUsed / 10) * 100;
+                
+                const item = document.createElement('div');
+                item.className = 'p-3 flex items-center justify-between';
+                item.innerHTML = `
+                    <div class="flex flex-col flex-1 min-w-0 pr-3">
+                        <span class="font-bold text-sm text-slate-800 truncate">${student.name}</span>
+                        <div class="w-full bg-slate-200 h-1.5 rounded-full mt-1 overflow-hidden">
+                            <div class="bg-blue-500 h-full transition-all" style="width: ${progressPercent}%"></div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold ${isCompleted ? 'text-green-600' : 'text-slate-500'}">🪙 ${student.coinsUsed}/10</span>
+                        ${student.isSubmitted ? '<span class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-md font-bold">✅ 제출됨</span>' : '<span class="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-bold">⏳ 대기중</span>'}
+                    </div>
+                `;
+                biddingStudentList.appendChild(item);
+            });
+            
+            // 이름 입력 수 체크
+            studentCountEl.innerText = studentList.length;
+        }
+
+        // 11. 선생님 전용 비즈니스 로직 제어 (Firestore 연동)
+
+        // 11-1. 경매 정식 개시
+        startAuctionBtn.addEventListener('click', async () => {
+            const names = getNames();
+            const activeSeats = sessionState.seatsConfig.filter(s => s.active);
+
+            if (names.length === 0) return showToast('학생 이름을 먼저 기재해주세요!', '⚠️');
+            if (names.length > activeSeats.length) return showToast(`활성 좌석이 모자랍니다! (학생: ${names.length}명 / 좌석: ${activeSeats.length}개)`, '❌');
+
+            showToast('실시간 클라우드 세션 빌드 중...', '🔄');
+
+            // 1) 기존 저장 학생 리스트 초기화 (삭제)
+            for (const stud of studentList) {
+                await deleteDoc(getStudentDocRef(stud.id));
+            }
+
+            // 2) 신규 학생 등록 및 업로드
+            for (let i = 0; i < names.length; i++) {
+                const sData = {
+                    id: String(i),
+                    name: names[i],
+                    coinsUsed: 0,
+                    bids: {},
+                    isSubmitted: false
+                };
+                await setDoc(getStudentDocRef(i), sData);
+            }
+
+            // 3) 세션 정보 업로드 및 페이즈 강제 이동
+            await updateDoc(getSessionDocRef(), {
+                phase: 'BIDDING',
+                activeRevealIndex: 0,
+                assignedSeats: {},
+                seatsToResolve: []
+            });
+
+            showToast('자리 경매 레이스가 시작되었습니다!', '🎉');
+        });
+
+        // 11-2. 경매 마감 및 정산 테이블 빌드
+        finishBiddingBtn.addEventListener('click', async () => {
+            const remaining = studentList.filter(s => !s.isSubmitted);
+            // 모든 학생이 제출하지 않아도 마감 가능하되, 미제출 상태의 학생이 있는 경우 경고를 하고 수집을 유연화시킵니다.
+            if (remaining.length > 0) {
+                if (!confirm(`아직 투자를 완료하지 않은 학생이 ${remaining.length}명 있습니다. 그래도 마감하고 바로 개표 방송으로 전환할까요?\n(제출하지 않은 친구들은 자동으로 미참가 및 랜덤 자리로 배정됩니다!)`)) {
+                    return;
+                }
+            }
+
+            showToast('경매 데이터 정산 중...', '📊');
+
+            const seatsToResolve = [];
+            const activeSeats = sessionState.seatsConfig.filter(s => s.active);
+
+            activeSeats.forEach(seat => {
+                const validBids = [];
+                studentList.forEach(student => {
+                    // 미제출 학생의 비딩은 안전하게 배제하여 공정하게 처리합니다.
+                    if (student.isSubmitted && student.bids && student.bids[String(seat.id)] > 0) {
+                        validBids.push({
+                            studentId: student.id,
+                            count: student.bids[String(seat.id)]
+                        });
+                    }
+                });
+
+                if (validBids.length > 0) {
+                    seatsToResolve.push({
+                        seatId: seat.id,
+                        label: seat.label,
+                        bids: validBids
+                    });
+                }
+            });
+
+            // 셔플 및 정렬 구조 확보하여 Firestore 기록
+            await updateDoc(getSessionDocRef(), {
+                phase: 'REVEAL',
+                seatsToResolve: seatsToResolve,
+                activeRevealIndex: 0,
+                assignedSeats: {}
+            });
+
+            showToast('실시간 개표 정산 준비 완료!', '🎬');
+        });
+
+        // 11-3. 다음 1개 좌석 실시간 개표
+        revealNextBtn.addEventListener('click', async () => {
+            if (sessionState.phase !== 'REVEAL') return;
+            
+            const activeRevealIndex = sessionState.activeRevealIndex;
+            const seatsToResolve = sessionState.seatsToResolve;
+            let assignedSeats = { ...sessionState.assignedSeats };
+            
+            // 이미 배정된 학생 제외한 목록 구하기 (투자를 정상 제출한 학생뿐만 아니라 미제출 학생도 최종 배정 풀에 반드시 포함시킴)
+            const getUnassigned = () => {
+                const assignedIds = Object.values(assignedSeats);
+                return studentList.filter(s => !assignedIds.includes(s.id));
+            };
+
+            if (activeRevealIndex < seatsToResolve.length) {
+                const item = seatsToResolve[activeRevealIndex];
+                
+                // 아직 낙찰되지 않은 유효 낙찰 대상자 추려내기
+                let activeBids = item.bids.filter(b => getUnassigned().some(u => u.id === b.studentId));
+                
+                if (activeBids.length > 0) {
+                    // 최고가 입찰액 구하기
+                    const maxBid = Math.max(...activeBids.map(b => b.count));
+                    const highestBidders = activeBids.filter(b => b.count === maxBid);
+                    
+                    // 단독 낙찰 또는 랜덤 추첨 결과 산정
+                    const winnerInfo = highestBidders[Math.floor(Math.random() * highestBidders.length)];
+                    
+                    assignedSeats[item.seatId] = winnerInfo.studentId;
+
+                    // 실시간 상태 전파 (학생들에게 동시 애니메이션 송출)
+                    await updateDoc(getSessionDocRef(), {
+                        assignedSeats: assignedSeats,
+                        activeRevealIndex: activeRevealIndex + 1,
+                        currentWinnerFlash: {
+                            seatId: item.seatId,
+                            studentName: studentList.find(s => s.id === winnerInfo.studentId).name,
+                            isTie: highestBidders.length > 1,
+                            bidCount: winnerInfo.count
+                        }
+                    });
+                } else {
+                    // 이번 자리는 이미 모두가 자리를 확보하여 자동 스킵 처리
+                    await updateDoc(getSessionDocRef(), {
+                        activeRevealIndex: activeRevealIndex + 1
+                    });
+                }
+            } else {
+                // 경매 입찰 종료 후 패자부활전 일괄 가동 (미제출 학생들까지 완벽히 포함하여 셔플 배정)
+                let unassigned = getUnassigned();
+                if (unassigned.length > 0) {
+                    const emptySeats = sessionState.seatsConfig.filter(s => s.active && assignedSeats[s.id] === undefined);
+                    const shuffledUnassigned = shuffle([...unassigned]);
+                    const shuffledSeats = shuffle([...emptySeats]);
+
+                    for (let i = 0; i < shuffledUnassigned.length; i++) {
+                        if (shuffledSeats[i]) {
+                            assignedSeats[shuffledSeats[i].id] = shuffledUnassigned[i].id;
+                        }
+                    }
+                }
+
+                await updateDoc(getSessionDocRef(), {
+                    phase: 'COMPLETE',
+                    assignedSeats: assignedSeats,
+                    currentWinnerFlash: null
+                });
+            }
+        });
+
+        // 11-4. 원클릭 고속 자동 개표
+        revealAllBtn.addEventListener('click', async () => {
+            if (sessionState.phase !== 'REVEAL') return;
+            
+            let assignedSeats = { ...sessionState.assignedSeats };
+            const seatsToResolve = sessionState.seatsToResolve;
+            
+            const getUnassigned = () => {
+                const assignedIds = Object.values(assignedSeats);
+                return studentList.filter(s => !assignedIds.includes(s.id));
+            };
+
+            // 1) 경매 좌석 일괄 고속 낙찰 처리
+            seatsToResolve.forEach(item => {
+                let activeBids = item.bids.filter(b => getUnassigned().some(u => u.id === b.studentId));
+                if (activeBids.length > 0) {
+                    const maxBid = Math.max(...activeBids.map(b => b.count));
+                    const highestBidders = activeBids.filter(b => b.count === maxBid);
+                    const winnerInfo = highestBidders[Math.floor(Math.random() * highestBidders.length)];
+                    assignedSeats[item.seatId] = winnerInfo.studentId;
+                }
+            });
+
+            // 2) 패자부활전 잔여 학생 일괄 매칭 (미제출 학생 포함)
+            let unassigned = getUnassigned();
+            if (unassigned.length > 0) {
+                const emptySeats = sessionState.seatsConfig.filter(s => s.active && assignedSeats[s.id] === undefined);
+                const shuffledUnassigned = shuffle([...unassigned]);
+                const shuffledSeats = shuffle([...emptySeats]);
+
+                for (let i = 0; i < shuffledUnassigned.length; i++) {
+                    if (shuffledSeats[i]) {
+                        assignedSeats[shuffledSeats[i].id] = shuffledUnassigned[i].id;
+                    }
+                }
+            }
+
+            await updateDoc(getSessionDocRef(), {
+                phase: 'COMPLETE',
+                assignedSeats: assignedSeats,
+                currentWinnerFlash: null
+            });
+
+            showToast('고속 개표 배치가 완료되었습니다!', '⚡');
+        });
+
+        // 12. 실시간 개표 방송 연출 (모든 기기 동시 실행)
+        async function triggerRevealSfxAnimation() {
+            const flash = sessionState.currentWinnerFlash;
+            if (!flash) return;
+
+            const seatEl = document.getElementById(`seat-${flash.seatId}`);
+            if (!seatEl) return;
+
+            // 포커싱 및 진동 애니메이션 부여
+            seatEl.classList.add('ring-4', 'ring-purple-500', 'z-10', 'scale-110');
+            seatEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            const nameSpan = seatEl.querySelector('.name');
+
+            if (flash.isTie) {
+                liveMessage.innerHTML = `🔥 TIE! 치열한 동점 경쟁 발생! (🪙 ${flash.bidCount}개)`;
+                liveSubMessage.innerText = "동점 투표자 랜덤 정밀 룰렛 추첨 돌입!";
+                
+                // 룰렛 효과
+                for (let r = 0; r < 8; r++) {
+                    liveMessage.innerHTML = `🎯 추첨 룰렛 가동 중... <span class="text-amber-400 font-extrabold">${flash.studentName}</span>?`;
+                    playSfx(400 + (r * 30), 0.05, 'sawtooth', 0.03);
+                    await new Promise(res => setTimeout(res, 80));
+                }
+            } else {
+                liveMessage.innerHTML = `🔎 좌석 #${sessionState.seatsConfig.find(s=>s.id === flash.seatId).label} 정밀 개산 중...`;
+                playSfx(300, 0.2, 'sine');
+                await new Promise(res => setTimeout(res, 500));
+            }
+
+            // 개표 완결 선언
+            liveMessage.innerHTML = `👑 #${sessionState.seatsConfig.find(s=>s.id === flash.seatId).label} 낙찰자: <span class="text-amber-400 font-black">${flash.studentName}</span>!`;
+            liveSubMessage.innerText = `낙찰 성공 입찰가: 🪙 ${flash.bidCount}개`;
+
+            playSfx(880, 0.5, 'square', 0.12);
+
+            setTimeout(() => {
+                seatEl.classList.remove('ring-4', 'ring-purple-500', 'scale-110');
+            }, 1000);
+        }
+
+        // 13. 기타 유틸리티 함수
+        function getNames() {
+            return nameInput.value.split(/[\n,]+/).map(n => n.trim()).filter(n => n !== '');
+        }
+
+        // 이미지 로컬 캡쳐 저장
+        captureBtn.addEventListener('click', () => {
+            const area = document.getElementById('captureArea');
+            showToast('배치도 이미지 제작 중...', '📸');
+            
+            html2canvas(area, {
+                backgroundColor: '#f1f5f9',
+                scale: 2,
+                ignoreElements: (el) => el.classList.contains('no-capture')
+            }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `정보실_실시간_경매배치_${new Date().toLocaleDateString()}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+                showToast('캡쳐 저장이 완료되었습니다!', '💾');
+            });
+        });
+
+        // 선생님용 전체 완전 초기화
+        resetBtn.addEventListener('click', async () => {
+            if (userRole !== 'TEACHER') return;
+            if (confirm('클라우드 상의 모든 입찰 데이터 및 학생 명단을 포맷하고 초기 단계로 리셋할까요?')) {
+                showToast('서버 데이터 포맷 중...', '🔄');
+
+                // 모든 학생 클리어
+                for (const stud of studentList) {
+                    await deleteDoc(getStudentDocRef(stud.id));
+                }
+
+                // 세션 리빌드
+                await createInitialSession();
+                
+                nameInput.value = "";
+                studentCountEl.innerText = "0";
+
+                showToast('초기화 완료되었습니다!', '🎉');
+            }
+        });
+
+        // 14. 앱 최초 기동 (Auth 실행 및 연동 확보)
+        initAuth();
+    </script>
+</body>
+</html>
